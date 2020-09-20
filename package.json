@@ -17,6 +17,7 @@
     "commander": "^6.1.0",
     "csv": "^5.3.2",
     "dotenv": "^8.2.0",
+    "json2csv": "^5.0.1",
     "luxon": "^1.25.0"
   },
   "devDependencies": {

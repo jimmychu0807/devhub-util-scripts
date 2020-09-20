@@ -3,8 +3,10 @@
 
 const { program } = require('commander');
 const axios = require('axios').default;
-require('dotenv').config();
 const { DateTime } = require('luxon');
+const { Parser } = require('json2csv');
+const writeFile = require('fs').writeFile;
+require('dotenv').config();
 
 const ghAuth = {
   username: process.env.GH_USERNAME,
@@ -19,9 +21,9 @@ const ghCmds = {
 const repos = [
   { owner: 'substrate-developer-hub', name: 'substrate-node-template' },
   { owner: 'substrate-developer-hub', name: 'substrate-front-end-template' },
-  // { owner: 'substrate-developer-hub', name: 'recipes' },
-  // { owner: 'substrate-developer-hub', name: 'substrate-parachain-template' },
-  // { owner: 'substrate-developer-hub', name: 'substrate-pallet-template' }
+  { owner: 'substrate-developer-hub', name: 'recipes' },
+  { owner: 'substrate-developer-hub', name: 'substrate-parachain-template' },
+  { owner: 'substrate-developer-hub', name: 'substrate-pallet-template' }
 ];
 
 const fetchGHData = async () => {
@@ -49,12 +51,46 @@ const fetchGHData = async () => {
 };
 
 const transformToCSVData = statsData => {
+  let csvData = {};
 
+  Object.entries(statsData).forEach(([key, array]) => {
+    array.forEach(row => {
+      csvData[row.date] = { ...csvData[row.date], [key]: row.count };
+    });
+  });
+
+  // Further transform and sort the object key
+  csvData = Object.entries(csvData).map(([key, obj]) => {
+    const sortedKeys = Object.keys(obj).sort();
+    const sortedRes = sortedKeys.reduce((acc, k) => ({ ...acc, [k]: obj[k] }), {});
+    return { date: key, ...sortedRes };
+  });
+
+  return csvData;
+};
+
+const outputFileName = () => {
+  const now = DateTime.local();
+  const fn = `data-${now.toFormat('yyyyMMddHHmm')}.csv`;
+  return fn;
+};
+
+const writeToCsv = csvData => {
+  try {
+    const parser = new Parser();
+    const csv = parser.parse(csvData);
+    writeFile(outputFileName(), csv, err => {
+      if (err) { return console.error(err); }
+    });
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 const run = async (_) => {
   const statsData = await fetchGHData();
   const csvData = transformToCSVData(statsData);
+  writeToCsv(csvData);
 };
 
 program
