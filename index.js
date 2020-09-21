@@ -79,7 +79,7 @@ const transformToCSVData = statsData => {
 
 const outputFileName = () => {
   const now = DateTime.local();
-  const fn = `data-${now.toFormat('yyyyMMddHHmm')}.csv`;
+  const fn = `data/data-${now.toFormat('yyyyMMddHHmm')}.csv`;
   return fn;
 };
 

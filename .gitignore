@@ -1,2 +1,5 @@
 .env
 node_modules
+
+# Do not check in csv data
+data/*.csv
