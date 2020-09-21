@@ -61,9 +61,17 @@ const transformToCSVData = statsData => {
 
   // Further transform and sort the object key
   csvData = Object.entries(csvData).map(([key, obj]) => {
+    // Sorting each row by the key, and finally prepend the object with `date` key.
     const sortedKeys = Object.keys(obj).sort();
     const sortedRes = sortedKeys.reduce((acc, k) => ({ ...acc, [k]: obj[k] }), {});
     return { date: key, ...sortedRes };
+  });
+
+  // Sort the whole array by `date` value
+  csvData.sort((o1, o2) => {
+    if (o1.date > o2.date) return 1;
+    if (o2.date > o1.date) return -1;
+    return 0;
   });
 
   return csvData;
@@ -79,6 +87,7 @@ const writeToCsv = csvData => {
   try {
     const parser = new Parser();
     const csv = parser.parse(csvData);
+
     writeFile(outputFileName(), csv, err => {
       if (err) { return console.error(err); }
     });
@@ -98,7 +107,8 @@ program
   .parse(process.argv);
 
 if (!ghAuth.username || !ghAuth.password) {
-  console.error('Github OAuth is not set. Please set GH_USERNAME and GH_ACCESS_TOKEN environment variables.');
+  console.error(
+    'Github OAuth is not set. Please set GH_USERNAME and GH_ACCESS_TOKEN environment variables.');
   process.exit(5);
 }
 
