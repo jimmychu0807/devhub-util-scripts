@@ -6,14 +6,14 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const os = require('os');
 const glob = require('glob');
+const axios = require('axios').default;
 
 async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
-  // Dealing with a single file
   const fContent = await fsPromises.readFile(fp, 'utf8');
   // buffer to write out, if replRegexStr is specified
   const fBuffer = [];
   // The regex to match
-  const findRe = insensitive ? new RegExp(findRegexStr, 'i') : new RegExp(findRegexStr);
+  const findRe = new RegExp(findRegexStr, (insensitive ? 'ig' : 'g'));
   // flag shortcut to represent if we actually need to writeout to a file
   const bWriteOut = replRegexStr && !dryRun;
 
@@ -26,7 +26,7 @@ async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
     // Line content matches findRe
     console.log(`${fp}:${lNum}: ${lContent}`);
 
-    const newLContent = replRegexStr ? lContent.replace(findRe, replRegexStr) : lContent;
+    const newLContent = replRegexStr ? lContent.replaceAll(findRe, replRegexStr) : lContent;
     if (dryRun) console.log(`  ↳ ${newLContent}`);
     if (bWriteOut) fBuffer.push(newLContent);
   });
@@ -35,8 +35,40 @@ async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
   if (bWriteOut) fsPromises.writeFile(fp, fBuffer.join(os.EOL));
 }
 
-function findUrl (visit, path) {
+async function findUrls (file) {
+  const fContent = await fsPromises.readFile(file, 'utf8');
+  // regex from SO: https://stackoverflow.com/a/3809435/523060
+  const findRe = /https?:\/\/[-a-zA-Z0-9@:%_+.~#?&//=]+/ig;
 
+  return fContent.split(/\r?\n/).map((lContent, lineNum) => {
+    const found = lContent.match(findRe);
+    if (!found) return null;
+    // Line content matches findRe
+    return found.map(link => ({ file, lineNum, link }));
+  }).filter(ent => !!ent).flat();
+}
+
+async function visitUrls (linkInfo) {
+  return await Promise.all(linkInfo.map(async li => {
+    const { file, lineNum, link } = li;
+    try {
+      const resp = await axios.get(link);
+      return { file, lineNum, link, status: resp.status === 200 };
+    } catch (err) {
+      return { file, lineNum, link, status: false, err: err.message };
+    }
+  }));
+}
+
+function displayUrls (linkInfo, errorOnly) {
+  linkInfo.forEach(ls => {
+    const { file, lineNum, link, status = null, err } = ls;
+    if (status && errorOnly) return;
+
+    let display = `${file}:${lineNum}: ${link}`;
+    if (status !== null) display += `, ${err ? `${status}, ${err}` : status}`;
+    console.log(display);
+  });
 }
 
 program
@@ -50,14 +82,12 @@ program
   .action((findRegexStr, path, options, command) => {
     const { insensitive, replace: replRegexStr, dryRun } = options;
 
-    console.log(`findRegex: ${findRegexStr}`);
-    if (replRegexStr) console.log(`replRegex: ${replRegexStr}`);
-    if (replRegexStr) console.log(`dryRun: ${dryRun}`);
-    console.log(`insensitive: ${insensitive}`);
     console.log(`path: ${path}`);
+    console.log(`findRegex: ${findRegexStr}, case-insensitive: ${insensitive}`);
+    if (replRegexStr) console.log(`replRegex: ${replRegexStr}, dry-run: ${dryRun}`);
 
     glob(`${path}/**/*`, {}, (err, files) => {
-      if (err) return console.log('findRegex error:', err.stack);
+      if (err) return console.log('find error:', err.stack);
       // We only process files
       const filtered = files.filter(f => fs.lstatSync(f).isFile());
       // The heavy-weight is done here
@@ -69,15 +99,23 @@ program
   .command('url')
   .description('finding all URLs in path')
   .arguments('<path>')
-  .option('-v, --visit', 'attempting to visit each link found and report back')
+  .option('-v, --visit', 'attempting to visit each link found and report back', false)
+  .option('-e, --error-only', 'use with visit flag, only display URLs returning non-200 status code', false)
   .action((path, options, command) => {
-    const visit = options.visit || false;
+    const { visit, errorOnly } = options;
 
-    console.log(`Command name: ${command.name()}`);
-    console.log(`visit: ${visit}`);
-    console.log(`path: ${path}`);
+    console.log(`path: ${path}, visit: ${visit}, errorOnly: ${errorOnly}`);
 
-    findUrl(visit, path);
+    glob(`${path}/**/*`, {}, async (err, files) => {
+      if (err) return console.log('url error:', err.stack);
+
+      let linkInfo = await Promise.all(files
+        .filter(f => fs.lstatSync(f).isFile()) // only process files
+        .map(f => findUrls(f))); // extractng links out of a file
+      linkInfo = linkInfo.flat();
+      if (visit) linkInfo = await visitUrls(linkInfo);
+      displayUrls(linkInfo, errorOnly);
+    });
   });
 
 program
