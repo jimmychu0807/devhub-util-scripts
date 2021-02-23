@@ -7,7 +7,7 @@ const fsPromises = fs.promises;
 const os = require('os');
 const glob = require('glob');
 
-function findRegex (findRegexStr, replRegexStr, insensitive, path) {
+function findRegex (findRegexStr, path, { replRegexStr, insensitive, dryRun }) {
   glob(`${path}/**/*`, {}, (err, files) => {
     if (err) {
       console.log('findRegex error:', err.stack);
@@ -16,29 +16,32 @@ function findRegex (findRegexStr, replRegexStr, insensitive, path) {
 
     // Filter out directories and leave with only files
     const filtered = files.filter(f => fs.lstatSync(f).isFile());
-
     filtered.forEach(async file => {
       // Dealing with a single file
       const fContent = await fsPromises.readFile(file, 'utf8');
       // buffer to write out, if replRegexStr is specified
       const fBuffer = [];
+      // The regex to match
       const findRe = insensitive ? new RegExp(findRegexStr, 'i') : new RegExp(findRegexStr);
+      // flag shortcut to represent if we actually need to writeout to a file
+      const bWriteOut = replRegexStr && !dryRun;
+
       fContent.split(/\r?\n/).forEach((lContent, lNum) => {
         if (!findRe.test(lContent)) {
           // no match of `findRe`
-          fBuffer.push(lContent);
+          if (bWriteOut) fBuffer.push(lContent);
           return;
         }
-
         // Line content matches findRe
         console.log(`${file}:${lNum}: ${lContent}`);
 
         const newLContent = replRegexStr ? lContent.replace(findRe, replRegexStr) : lContent;
-        fBuffer.push(newLContent);
+        if (dryRun) console.log(`  ↳ ${newLContent}`);
+        if (bWriteOut) fBuffer.push(newLContent);
       });
 
-      // write back to the file
-      if (replRegexStr) fsPromises.writeFile(file, fBuffer.join(os.EOL));
+      // write back to the file if replacement is needed
+      if (bWriteOut) fsPromises.writeFile(file, fBuffer.join(os.EOL));
     });
   });
 }
@@ -53,16 +56,19 @@ program
   .usage('<find-regex> [options] <path>')
   .arguments('<path>')
   .option('-i, --insensitive', 'regex to be matched with case-insensitive', false)
-  .option('-r, --replace <repl-regex>', 'replacing the matched strings with replacing regex')
-  .action((fRegex, path, options, command) => {
-    const { insensitive, replace: replRegex } = options;
+  .option('-d, --dry-run', 'use with replace flag, output the changes on display and no files are overwritten', false)
+  .option('-r, --replace <repl-regex>', 'replace the matched strings with `repl-regex` to files in-place')
+  .action((findRegexStr, path, options, command) => {
+    const { insensitive, replace: replRegexStr, dryRun } = options;
 
-    console.log(`findRegex: ${fRegex}`);
-    if (replRegex) console.log(`replRegex: ${replRegex}`);
+    console.log(`findRegex: ${findRegexStr}`);
+    if (replRegexStr) console.log(`replRegex: ${replRegexStr}`);
+    if (replRegexStr) console.log(`dryRun: ${dryRun}`);
     console.log(`insensitive: ${insensitive}`);
     console.log(`path: ${path}`);
 
-    findRegex(fRegex, replRegex, insensitive, path);
+    // The real meat comes here
+    findRegex(findRegexStr, path, { replRegexStr, insensitive, dryRun });
   });
 
 program
