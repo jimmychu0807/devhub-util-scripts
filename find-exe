@@ -2,9 +2,45 @@
 'use strict';
 
 const { program } = require('commander');
+const fs = require('fs');
+const fsPromises = fs.promises;
+const os = require('os');
+const glob = require('glob');
 
-function findRegex (findRegex, replRegex, path) {
+function findRegex (findRegexStr, replRegexStr, insensitive, path) {
+  glob(`${path}/**/*`, {}, (err, files) => {
+    if (err) {
+      console.log('findRegex error:', err.stack);
+      return;
+    }
 
+    // Filter out directories and leave with only files
+    const filtered = files.filter(f => fs.lstatSync(f).isFile());
+
+    filtered.forEach(async file => {
+      // Dealing with a single file
+      const fContent = await fsPromises.readFile(file, 'utf8');
+      // buffer to write out, if replRegexStr is specified
+      const fBuffer = [];
+      const findRe = insensitive ? new RegExp(findRegexStr, 'i') : new RegExp(findRegexStr);
+      fContent.split(/\r?\n/).forEach((lContent, lNum) => {
+        if (!findRe.test(lContent)) {
+          // no match of `findRe`
+          fBuffer.push(lContent);
+          return;
+        }
+
+        // Line content matches findRe
+        console.log(`${file}:${lNum}: ${lContent}`);
+
+        const newLContent = replRegexStr ? lContent.replace(findRe, replRegexStr) : lContent;
+        fBuffer.push(newLContent);
+      });
+
+      // write back to the file
+      if (replRegexStr) fsPromises.writeFile(file, fBuffer.join(os.EOL));
+    });
+  });
 }
 
 function findUrl (visit, path) {
@@ -16,16 +52,17 @@ program
   .description('finding lines that fit the specified regex in path')
   .usage('<find-regex> [options] <path>')
   .arguments('<path>')
+  .option('-i, --insensitive', 'regex to be matched with case-insensitive', false)
   .option('-r, --replace <repl-regex>', 'replacing the matched strings with replacing regex')
   .action((fRegex, path, options, command) => {
-    const replRegex = options.replace || false;
+    const { insensitive, replace: replRegex } = options;
 
-    console.log(`Command name: ${command.name()}`);
     console.log(`findRegex: ${fRegex}`);
-    console.log(`replRegex: ${replRegex}`);
+    if (replRegex) console.log(`replRegex: ${replRegex}`);
+    console.log(`insensitive: ${insensitive}`);
     console.log(`path: ${path}`);
 
-    findRegex(fRegex, replRegex, path);
+    findRegex(fRegex, replRegex, insensitive, path);
   });
 
 program
