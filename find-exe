@@ -7,43 +7,32 @@ const fsPromises = fs.promises;
 const os = require('os');
 const glob = require('glob');
 
-function findRegex (findRegexStr, path, { replRegexStr, insensitive, dryRun }) {
-  glob(`${path}/**/*`, {}, (err, files) => {
-    if (err) {
-      console.log('findRegex error:', err.stack);
+async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
+  // Dealing with a single file
+  const fContent = await fsPromises.readFile(fp, 'utf8');
+  // buffer to write out, if replRegexStr is specified
+  const fBuffer = [];
+  // The regex to match
+  const findRe = insensitive ? new RegExp(findRegexStr, 'i') : new RegExp(findRegexStr);
+  // flag shortcut to represent if we actually need to writeout to a file
+  const bWriteOut = replRegexStr && !dryRun;
+
+  fContent.split(/\r?\n/).forEach((lContent, lNum) => {
+    if (!findRe.test(lContent)) {
+      // no match of `findRe`
+      if (bWriteOut) fBuffer.push(lContent);
       return;
     }
+    // Line content matches findRe
+    console.log(`${fp}:${lNum}: ${lContent}`);
 
-    // Filter out directories and leave with only files
-    const filtered = files.filter(f => fs.lstatSync(f).isFile());
-    filtered.forEach(async file => {
-      // Dealing with a single file
-      const fContent = await fsPromises.readFile(file, 'utf8');
-      // buffer to write out, if replRegexStr is specified
-      const fBuffer = [];
-      // The regex to match
-      const findRe = insensitive ? new RegExp(findRegexStr, 'i') : new RegExp(findRegexStr);
-      // flag shortcut to represent if we actually need to writeout to a file
-      const bWriteOut = replRegexStr && !dryRun;
-
-      fContent.split(/\r?\n/).forEach((lContent, lNum) => {
-        if (!findRe.test(lContent)) {
-          // no match of `findRe`
-          if (bWriteOut) fBuffer.push(lContent);
-          return;
-        }
-        // Line content matches findRe
-        console.log(`${file}:${lNum}: ${lContent}`);
-
-        const newLContent = replRegexStr ? lContent.replace(findRe, replRegexStr) : lContent;
-        if (dryRun) console.log(`  ↳ ${newLContent}`);
-        if (bWriteOut) fBuffer.push(newLContent);
-      });
-
-      // write back to the file if replacement is needed
-      if (bWriteOut) fsPromises.writeFile(file, fBuffer.join(os.EOL));
-    });
+    const newLContent = replRegexStr ? lContent.replace(findRe, replRegexStr) : lContent;
+    if (dryRun) console.log(`  ↳ ${newLContent}`);
+    if (bWriteOut) fBuffer.push(newLContent);
   });
+
+  // write back to the filepath if replacement is needed
+  if (bWriteOut) fsPromises.writeFile(fp, fBuffer.join(os.EOL));
 }
 
 function findUrl (visit, path) {
@@ -67,8 +56,13 @@ program
     console.log(`insensitive: ${insensitive}`);
     console.log(`path: ${path}`);
 
-    // The real meat comes here
-    findRegex(findRegexStr, path, { replRegexStr, insensitive, dryRun });
+    glob(`${path}/**/*`, {}, (err, files) => {
+      if (err) return console.log('findRegex error:', err.stack);
+      // We only process files
+      const filtered = files.filter(f => fs.lstatSync(f).isFile());
+      // The heavy-weight is done here
+      filtered.forEach(fp => findRegex(fp, findRegexStr, replRegexStr, insensitive, dryRun));
+    });
   });
 
 program
