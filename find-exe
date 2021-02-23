@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+'use strict';
+
+const { program } = require('commander');
+
+program
+  .command('find <find-regex>')
+  .description('finding lines that fit the specified regex in path')
+  .usage('<find-regex> [options] <path>')
+  .arguments('<path>')
+  .option('-r, --replace <repl-regex>', 'replacing the matched strings with replacing regex')
+  .action((findRegex, path, options, command) => {
+    console.log(`Command name: ${command.name()}`);
+    console.log(`findRegex: ${findRegex}`);
+    console.log(`replRegex: ${options.replace}`);
+    console.log(`path: ${path}`);
+  });
+
+program
+  .command('url')
+  .description('finding all URLs in path')
+  .arguments('<path>')
+  .option('-v, --visit', 'attempting to visit each link found and report back')
+  .action((path, options, command) => {
+    const visit = options.visit || false;
+    console.log(`Command name: ${command.name()}`);
+    console.log(`visit: ${visit}`);
+    console.log(`path: ${path}`);
+  });
+
+program
+  .version('1.0.0')
+  .parse(process.argv);
