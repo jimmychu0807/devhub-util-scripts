@@ -3,17 +3,29 @@
 
 const { program } = require('commander');
 
+function findRegex (findRegex, replRegex, path) {
+
+}
+
+function findUrl (visit, path) {
+
+}
+
 program
   .command('find <find-regex>')
   .description('finding lines that fit the specified regex in path')
   .usage('<find-regex> [options] <path>')
   .arguments('<path>')
   .option('-r, --replace <repl-regex>', 'replacing the matched strings with replacing regex')
-  .action((findRegex, path, options, command) => {
+  .action((fRegex, path, options, command) => {
+    const replRegex = options.replace || false;
+
     console.log(`Command name: ${command.name()}`);
-    console.log(`findRegex: ${findRegex}`);
-    console.log(`replRegex: ${options.replace}`);
+    console.log(`findRegex: ${fRegex}`);
+    console.log(`replRegex: ${replRegex}`);
     console.log(`path: ${path}`);
+
+    findRegex(fRegex, replRegex, path);
   });
 
 program
@@ -23,9 +35,12 @@ program
   .option('-v, --visit', 'attempting to visit each link found and report back')
   .action((path, options, command) => {
     const visit = options.visit || false;
+
     console.log(`Command name: ${command.name()}`);
     console.log(`visit: ${visit}`);
     console.log(`path: ${path}`);
+
+    findUrl(visit, path);
   });
 
 program
