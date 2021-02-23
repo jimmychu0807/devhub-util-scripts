@@ -3,3 +3,12 @@ node_modules
 
 # Do not check in csv data
 data/*.csv
+
+# Not using Zero-Installs
+#   ref: https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
