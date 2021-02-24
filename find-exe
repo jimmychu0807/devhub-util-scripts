@@ -7,10 +7,21 @@ const fsPromises = fs.promises;
 const os = require('os');
 const glob = require('glob');
 const axios = require('axios').default;
+require('dotenv').config();
 
 const VISIT_TIMEOUT = 30000; // in milliseconds
 const DISPLAY_PREFIX_LEN = 50;
 const LINENUM_PADDING_LEN = 5;
+const RATE_LIMIT = 20; // sending RATE_LIMIT GET requests/sec
+const LOG_VISIT_PROCESS = true;
+
+// Expect to read `GH_USERNAME` and `GH_ACCESS_TOKEN` from env var or `.env` file
+// Genereate your GH personal access token: https://docs.github.com/en/articles/creating-a-personal-access-token-for-the-command-line
+const ghAuth = {
+  username: process.env.GH_USERNAME,
+  password: process.env.GH_ACCESS_TOKEN
+};
+
 // regex coming from SO: https://stackoverflow.com/a/29288898/523060
 const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.|ftp\.)(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[-A-Z0-9+&@#/%=~_|$?!:,.])*(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[A-Z0-9+&@#/%=~_|$])/ig;
 const URL_EXCLUDE_PATTERNS = [
@@ -64,16 +75,52 @@ async function findUrls (file) {
   }).filter(ent => !!ent).flat();
 }
 
+const sleep = delay => new Promise(resolve => setTimeout(resolve, delay));
+const logVisitProcess = (processed, total) => {
+  if (!LOG_VISIT_PROCESS) return;
+
+  console.log(`${processed}/${total} links visited`);
+};
+
 async function visitUrls (linkInfo) {
-  return await Promise.all(linkInfo.map(async li => {
-    const { file, lineNum, link } = li;
-    try {
-      const resp = await axios.get(link, { timeout: VISIT_TIMEOUT });
-      return { file, lineNum, link, status: resp.status === 200 };
-    } catch (err) {
-      return { file, lineNum, link, status: false, err: err.message };
+  let linkInfoCopied = [...linkInfo];
+  let visitLinks = [];
+  let result = [];
+  let processed = 0;
+
+  logVisitProcess(processed, linkInfo.length);
+  // allowing rate limiting
+  while (linkInfoCopied.length > 0) {
+    if (linkInfoCopied.length > RATE_LIMIT) {
+      visitLinks = linkInfoCopied.slice(0, RATE_LIMIT);
+      linkInfoCopied = linkInfoCopied.slice(RATE_LIMIT);
+    } else {
+      visitLinks = [...linkInfoCopied];
+      linkInfoCopied = [];
     }
-  }));
+
+    const partialRes = await Promise.all(visitLinks.map(async li => {
+      const { file, lineNum, link } = li;
+      try {
+        // Adding Github authentication to increase the rate limit for visiting
+        //   github URL or github hosted pages. Ref:
+        const resp = await axios.get(link, { timeout: VISIT_TIMEOUT, auth: ghAuth });
+        return { file, lineNum, link, status: resp.status === 200 };
+      } catch (err) {
+        return { file, lineNum, link, status: false, err: err.message };
+      }
+    }));
+
+    result = result.concat(partialRes);
+
+    // housekeeping
+    processed += visitLinks.length;
+    logVisitProcess(processed, linkInfo.length);
+    // sleep for 1 sec, only if we need to visit next batch of links
+    if (linkInfoCopied.length > 0) sleep(1000);
+  }
+
+  return result;
 }
 
 const displayPrefix = content => {
@@ -101,6 +148,8 @@ function displayUrls (linkInfo, errorOnly) {
   });
   console.log(`-- total URLs: ${linkTotal} --`);
 }
+
+// --- Main Program - cli interface ---
 
 program
   .command('find <find-regex>')
@@ -144,7 +193,9 @@ program
         .filter(f => fs.lstatSync(f).isFile()) // only process files
         .map(f => findUrls(f))); // extractng links out of a file
       linkInfo = linkInfo.flat();
+
       if (visit) linkInfo = await visitUrls(linkInfo);
+
       displayUrls(linkInfo, errorOnly);
     });
   });
