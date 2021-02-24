@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+'use strict';
+
+const { program } = require('commander');
+const fs = require('fs');
+const fsPromises = fs.promises;
+const os = require('os');
+const glob = require('glob');
+const axios = require('axios').default;
+require('dotenv').config();
+
+const VISIT_TIMEOUT = 30000; // in milliseconds
+const DISPLAY_PREFIX_LEN = 50;
+const LINENUM_PADDING_LEN = 5;
+const RATE_LIMIT = 20; // sending RATE_LIMIT GET requests/sec
+const LOG_VISIT_PROCESS = true;
+
+// Expect to read `GH_USERNAME` and `GH_ACCESS_TOKEN` from env var or `.env` file
+// Genereate your GH personal access token: https://docs.github.com/en/articles/creating-a-personal-access-token-for-the-command-line
+const ghAuth = {
+  username: process.env.GH_USERNAME,
+  password: process.env.GH_ACCESS_TOKEN
+};
+
+// regex coming from SO: https://stackoverflow.com/a/29288898/523060
+const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.|ftp\.)(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[-A-Z0-9+&@#/%=~_|$?!:,.])*(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[A-Z0-9+&@#/%=~_|$])/ig;
+const URL_EXCLUDE_PATTERNS = [
+  /localhost/, // do not test `localhost` link
+  /\S+\.git$/, // do not test link that ends with `.git`. It is likely part of the git clone command.
+];
+
+async function findRegex (fp, findRegexStr, replStr, insensitive, dryRun) {
+  const fContent = await fsPromises.readFile(fp, 'utf8');
+  // buffer to write out, if replStr is specified
+  const fBuffer = [];
+  // The regex to match
+  const findRe = new RegExp(findRegexStr, (insensitive ? 'ig' : 'g'));
+  // flag shortcut to represent if we actually need to writeout to a file
+  const bWriteOut = replStr && !dryRun;
+
+  fContent.split(/\r?\n/).forEach((lContent, lNum) => {
+    if (!findRe.test(lContent)) {
+      // no match of `findRe`
+      if (bWriteOut) fBuffer.push(lContent);
+      return;
+    }
+    // Line content matches findRe
+    console.log(`${fp}:${lNum + 1}: ${lContent}`);
+
+    const newLContent = replStr ? lContent.replace(findRe, replStr) : lContent;
+    if (dryRun) console.log(`  ↳ ${newLContent}`);
+    if (bWriteOut) fBuffer.push(newLContent);
+  });
+
+  // write back to the filepath if replacement is needed
+  if (bWriteOut) fsPromises.writeFile(fp, fBuffer.join(os.EOL));
+}
+
+function containsValidUrl (line) {
+  const links = line.match(URL_REGEX);
+  if (!links) return [];
+
+  return links.filter(link => !URL_EXCLUDE_PATTERNS.some(pat => pat.test(link)));
+}
+
+async function findUrls (file) {
+  const fContent = await fsPromises.readFile(file, 'utf8');
+
+  return fContent.split(/\r?\n/).map((lContent, lineNum) => {
+    const links = containsValidUrl(lContent);
+    if (links.length === 0) return null;
+
+    // Line content matches url regex
+    return links.map(link => ({ file, lineNum: lineNum + 1, link }));
+  }).filter(ent => !!ent).flat();
+}
+
+const sleep = delay => new Promise(resolve => setTimeout(resolve, delay));
+const logVisitProcess = (processed, total) => {
+  if (!LOG_VISIT_PROCESS) return;
+
+  console.log(`${processed}/${total} links visited`);
+};
+
+async function visitUrls (linkInfo) {
+  let linkInfoCopied = [...linkInfo];
+  let visitLinks = [];
+  let result = [];
+  let processed = 0;
+
+  logVisitProcess(processed, linkInfo.length);
+  // allowing rate limiting
+  while (linkInfoCopied.length > 0) {
+    if (linkInfoCopied.length > RATE_LIMIT) {
+      visitLinks = linkInfoCopied.slice(0, RATE_LIMIT);
+      linkInfoCopied = linkInfoCopied.slice(RATE_LIMIT);
+    } else {
+      visitLinks = [...linkInfoCopied];
+      linkInfoCopied = [];
+    }
+
+    const partialRes = await Promise.all(visitLinks.map(async li => {
+      const { file, lineNum, link } = li;
+      try {
+        // Adding Github authentication to increase the rate limit for visiting
+        //   github URL or github hosted pages. Ref:
+        const resp = await axios.get(link, { timeout: VISIT_TIMEOUT, auth: ghAuth });
+        return { file, lineNum, link, status: resp.status === 200 };
+      } catch (err) {
+        return { file, lineNum, link, status: false, err: err.message };
+      }
+    }));
+
+    result = result.concat(partialRes);
+
+    // housekeeping
+    processed += visitLinks.length;
+    logVisitProcess(processed, linkInfo.length);
+    // sleep for 1 sec, only if we need to visit next batch of links
+    if (linkInfoCopied.length > 0) sleep(1000);
+  }
+
+  return result;
+}
+
+const displayPrefix = content => {
+  if (content.length <= DISPLAY_PREFIX_LEN) return content;
+  return `…${content.slice(DISPLAY_PREFIX_LEN * -1)}`;
+};
+
+const lineNumPadding = num => {
+  const fullNumStr = `${num}: `;
+  if (fullNumStr.length >= LINENUM_PADDING_LEN) return fullNumStr;
+
+  return `${fullNumStr}${' '.repeat(LINENUM_PADDING_LEN - fullNumStr.length)}`;
+};
+
+function displayUrls (linkInfo, errorOnly) {
+  let linkTotal = 0;
+  linkInfo.forEach(ls => {
+    const { file, lineNum, link, status = null, err } = ls;
+    if (status && errorOnly) return;
+
+    linkTotal += 1;
+    let display = `${displayPrefix(file)}:${lineNumPadding(lineNum)}${link}`;
+    if (status !== null) display += `, ${err ? `${status}, ${err}` : status}`;
+    console.log(display);
+  });
+  console.log(`-- total URLs: ${linkTotal} --`);
+}
+
+// --- Main Program - cli interface ---
+
+program
+  .command('find <find-regex>')
+  .description('finding lines that fit the specified regex in path')
+  .usage('<find-regex> [options] <path>')
+  .arguments('<path>')
+  .option('-i, --insensitive', 'regex to be matched with case-insensitive', false)
+  .option('-d, --dry-run', 'use with replace flag, output the changes on display and no files are overwritten', false)
+  .option('-r, --replace <repl-str>', 'replace the matched strings with `repl-str` to files in-place')
+  .action((findRegexStr, path, options, command) => {
+    const { insensitive, replace: replStr, dryRun } = options;
+
+    console.log(`path: ${path}`);
+    console.log(`findRegex: ${findRegexStr}, case-insensitive: ${insensitive}`);
+    if (replStr) console.log(`replRegex: ${replStr}, dry-run: ${dryRun}`);
+
+    glob(path, {}, (err, files) => {
+      if (err) return console.log('find error:', err.stack);
+      // We only process files
+      const filtered = files.filter(f => fs.lstatSync(f).isFile());
+      // The heavy-weight is done here
+      filtered.forEach(fp => findRegex(fp, findRegexStr, replStr, insensitive, dryRun));
+    });
+  });
+
+program
+  .command('url')
+  .description('finding all URLs in path')
+  .arguments('<path>')
+  .option('-v, --visit', 'attempt to visit each link found and report back', false)
+  .option('-e, --error-only', 'use with visit flag, only display URLs returning non-200 status code', false)
+  .action((path, options, command) => {
+    const { visit, errorOnly } = options;
+
+    console.log(`path: ${path}, visit: ${visit}, errorOnly: ${errorOnly}`);
+
+    glob(path, {}, async (err, files) => {
+      if (err) return console.log('url error:', err.stack);
+
+      let linkInfo = await Promise.all(files
+        .filter(f => fs.lstatSync(f).isFile()) // only process files
+        .map(f => findUrls(f))); // extractng links out of a file
+      linkInfo = linkInfo.flat();
+
+      if (visit) linkInfo = await visitUrls(linkInfo);
+
+      displayUrls(linkInfo, errorOnly);
+    });
+  });
+
+program
+  .version('1.0.0')
+  .parse(process.argv);
