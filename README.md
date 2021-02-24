@@ -35,13 +35,13 @@ Stands for find and execute. It mainly has two purposes:
 - To search for the string `v2.0.0` in all md files, case insensitive, and replace the matched strings with `v3.0.0`. `-d` means dry-run, and will display what lines are changed and what these lines end up look like.
 
   ```
-  ./find-exe find 'v2\.0\.0' -id -r 'v3.0.0' '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
+  ./find-exe find 'v2\.0\.0' -id -r 'v3.0.0' '/devhub-maindocs/docs/**/*.md'
   ```
 
 - To search for the string `v2.0.0` in all md files, case insensitive, and replace the matched strings with `v3.0.0`. The replacement will be done in-place in the file. **Please commit your files or backup your whole directory before running this command.**
 
   ```
-  ./find-exe find 'v2\.0\.0' -ir 'v3.0.0' '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
+  ./find-exe find 'v2\.0\.0' -ir 'v3.0.0' '/devhub-maindocs/docs/**/*.md'
   ```
 
 ### URL Checking
@@ -49,19 +49,19 @@ Stands for find and execute. It mainly has two purposes:
 - To display all URLs found in the path (all files and its subdirectories). URLs are assumed to start with either `http://`, `https://`, `ftp://`, or `file://`.
 
   ```
-  ./find-exe url '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
+  ./find-exe url '/devhub-maindocs/docs/**/*.md'
   ```
 
 - To display all URLs found in the path, try to visit them, and report status.
 
   ```
-  ./find-exe url -v '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
+  ./find-exe url -v '/devhub-maindocs/docs/**/*.md'
   ```
 
 - To display all URLs found in the path, try to visit them, and report status only to links that returned error (non 200 status).
 
   ```
-  ./find-exe url -ve '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
+  ./find-exe url -ve '/devhub-maindocs/docs/**/*.md'
   ```
 
 ### Configuration
