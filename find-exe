@@ -8,6 +8,15 @@ const os = require('os');
 const glob = require('glob');
 const axios = require('axios').default;
 
+const VISIT_TIMEOUT = 30000; // in milliseconds
+const DISPLAY_PREFIX_LEN = 50;
+const LINENUM_PADDING_LEN = 5;
+// regex coming from SO: https://stackoverflow.com/a/29288898/523060
+const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.|ftp\.)(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[-A-Z0-9+&@#/%=~_|$?!:,.])*(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[A-Z0-9+&@#/%=~_|$])/ig;
+const URL_EXCLUDE_PATTERNS = [
+  /localhost/
+];
+
 async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
   const fContent = await fsPromises.readFile(fp, 'utf8');
   // buffer to write out, if replRegexStr is specified
@@ -35,16 +44,22 @@ async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
   if (bWriteOut) fsPromises.writeFile(fp, fBuffer.join(os.EOL));
 }
 
+function containsValidUrl (line) {
+  const links = line.match(URL_REGEX);
+  if (!links) return [];
+
+  return links.filter(link => !URL_EXCLUDE_PATTERNS.some(pat => pat.test(link)));
+}
+
 async function findUrls (file) {
   const fContent = await fsPromises.readFile(file, 'utf8');
-  // regex from SO: https://stackoverflow.com/a/3809435/523060
-  const findRe = /https?:\/\/[-a-zA-Z0-9@:%_+.~#?&//=]+/ig;
 
   return fContent.split(/\r?\n/).map((lContent, lineNum) => {
-    const found = lContent.match(findRe);
-    if (!found) return null;
-    // Line content matches findRe
-    return found.map(link => ({ file, lineNum, link }));
+    const links = containsValidUrl(lContent);
+    if (links.length === 0) return null;
+
+    // Line content matches url regex
+    return links.map(link => ({ file, lineNum: lineNum + 1, link }));
   }).filter(ent => !!ent).flat();
 }
 
@@ -52,7 +67,7 @@ async function visitUrls (linkInfo) {
   return await Promise.all(linkInfo.map(async li => {
     const { file, lineNum, link } = li;
     try {
-      const resp = await axios.get(link);
+      const resp = await axios.get(link, { timeout: VISIT_TIMEOUT });
       return { file, lineNum, link, status: resp.status === 200 };
     } catch (err) {
       return { file, lineNum, link, status: false, err: err.message };
@@ -60,15 +75,30 @@ async function visitUrls (linkInfo) {
   }));
 }
 
+const displayPrefix = content => {
+  if (content.length <= DISPLAY_PREFIX_LEN) return content;
+  return `…${content.slice(DISPLAY_PREFIX_LEN * -1)}`;
+};
+
+const lineNumPadding = num => {
+  const fullNumStr = `${num}: `;
+  if (fullNumStr.length >= LINENUM_PADDING_LEN) return fullNumStr;
+
+  return `${fullNumStr}${' '.repeat(LINENUM_PADDING_LEN - fullNumStr.length)}`;
+};
+
 function displayUrls (linkInfo, errorOnly) {
+  let linkTotal = 0;
   linkInfo.forEach(ls => {
     const { file, lineNum, link, status = null, err } = ls;
     if (status && errorOnly) return;
 
-    let display = `${file}:${lineNum}: ${link}`;
+    linkTotal += 1;
+    let display = `${displayPrefix(file)}:${lineNumPadding(lineNum)}${link}`;
     if (status !== null) display += `, ${err ? `${status}, ${err}` : status}`;
     console.log(display);
   });
+  console.log(`-- total URLs: ${linkTotal} --`);
 }
 
 program
@@ -86,7 +116,7 @@ program
     console.log(`findRegex: ${findRegexStr}, case-insensitive: ${insensitive}`);
     if (replRegexStr) console.log(`replRegex: ${replRegexStr}, dry-run: ${dryRun}`);
 
-    glob(`${path}/**/*`, {}, (err, files) => {
+    glob(path, {}, (err, files) => {
       if (err) return console.log('find error:', err.stack);
       // We only process files
       const filtered = files.filter(f => fs.lstatSync(f).isFile());
@@ -106,7 +136,7 @@ program
 
     console.log(`path: ${path}, visit: ${visit}, errorOnly: ${errorOnly}`);
 
-    glob(`${path}/**/*`, {}, async (err, files) => {
+    glob(path, {}, async (err, files) => {
       if (err) return console.log('url error:', err.stack);
 
       let linkInfo = await Promise.all(files
