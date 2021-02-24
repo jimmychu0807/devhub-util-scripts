@@ -14,6 +14,8 @@ cp .env.example .env
 #   GH_ACCESS_TOKEN=your-github-access-token
 ```
 
+After yarn install, if links we are attempt to connect have a lot of github URLs or github-hosted pages (> 50), it is recommended to set the `GH_USERNAME` and `GH_ACCESS_TOKEN` to increase GH access rate limit.
+
 ## Cmd: `find-exe`
 
 Stands for find and execute. It mainly has two purposes:
@@ -61,6 +63,16 @@ Stands for find and execute. It mainly has two purposes:
   ```
   ./find-exe url -ve '/Users/jimmychu/src/parity/devhub-gh/maindocs/docs/**/*.md'
   ```
+
+### Configuration
+
+A few key config parameters you can set in `find-exe`.
+
+- **VISIT_TIMEOUT**: link visiting timeout (default: 30s)
+- **DISPLAY_PREFIX_LEN**: filepath are sliced down to this length
+- **LINENUM_PADDING_LEN**: line number are padded to this length, for easier eye reading
+- **RATE_LIMIT**: Attempt to visit this amount of URLs each second. This is to cope with rate limiting mechanism from remote servers.
+- **LOG_VISIT_PROCESS**: log to screen the current URL visiting progress
 
 ### Getting Help
 
