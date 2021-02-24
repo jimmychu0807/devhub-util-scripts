@@ -14,7 +14,8 @@ const LINENUM_PADDING_LEN = 5;
 // regex coming from SO: https://stackoverflow.com/a/29288898/523060
 const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.|ftp\.)(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[-A-Z0-9+&@#/%=~_|$?!:,.])*(?:\([-A-Z0-9+&@#/%=~_|$?!:,.]*\)|[A-Z0-9+&@#/%=~_|$])/ig;
 const URL_EXCLUDE_PATTERNS = [
-  /localhost/
+  /localhost/, // do not test `localhost` link
+  /\S+\.git$/, // do not test link that ends with `.git`. It is likely part of the git clone command.
 ];
 
 async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
@@ -33,7 +34,7 @@ async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
       return;
     }
     // Line content matches findRe
-    console.log(`${fp}:${lNum}: ${lContent}`);
+    console.log(`${fp}:${lNum + 1}: ${lContent}`);
 
     const newLContent = replRegexStr ? lContent.replaceAll(findRe, replRegexStr) : lContent;
     if (dryRun) console.log(`  ↳ ${newLContent}`);
