@@ -29,14 +29,14 @@ const URL_EXCLUDE_PATTERNS = [
   /\S+\.git$/, // do not test link that ends with `.git`. It is likely part of the git clone command.
 ];
 
-async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
+async function findRegex (fp, findRegexStr, replStr, insensitive, dryRun) {
   const fContent = await fsPromises.readFile(fp, 'utf8');
-  // buffer to write out, if replRegexStr is specified
+  // buffer to write out, if replStr is specified
   const fBuffer = [];
   // The regex to match
   const findRe = new RegExp(findRegexStr, (insensitive ? 'ig' : 'g'));
   // flag shortcut to represent if we actually need to writeout to a file
-  const bWriteOut = replRegexStr && !dryRun;
+  const bWriteOut = replStr && !dryRun;
 
   fContent.split(/\r?\n/).forEach((lContent, lNum) => {
     if (!findRe.test(lContent)) {
@@ -47,7 +47,7 @@ async function findRegex (fp, findRegexStr, replRegexStr, insensitive, dryRun) {
     // Line content matches findRe
     console.log(`${fp}:${lNum + 1}: ${lContent}`);
 
-    const newLContent = replRegexStr ? lContent.replaceAll(findRe, replRegexStr) : lContent;
+    const newLContent = replStr ? lContent.replace(findRe, replStr) : lContent;
     if (dryRun) console.log(`  ↳ ${newLContent}`);
     if (bWriteOut) fBuffer.push(newLContent);
   });
@@ -158,20 +158,20 @@ program
   .arguments('<path>')
   .option('-i, --insensitive', 'regex to be matched with case-insensitive', false)
   .option('-d, --dry-run', 'use with replace flag, output the changes on display and no files are overwritten', false)
-  .option('-r, --replace <repl-regex>', 'replace the matched strings with `repl-regex` to files in-place')
+  .option('-r, --replace <repl-str>', 'replace the matched strings with `repl-str` to files in-place')
   .action((findRegexStr, path, options, command) => {
-    const { insensitive, replace: replRegexStr, dryRun } = options;
+    const { insensitive, replace: replStr, dryRun } = options;
 
     console.log(`path: ${path}`);
     console.log(`findRegex: ${findRegexStr}, case-insensitive: ${insensitive}`);
-    if (replRegexStr) console.log(`replRegex: ${replRegexStr}, dry-run: ${dryRun}`);
+    if (replStr) console.log(`replRegex: ${replStr}, dry-run: ${dryRun}`);
 
     glob(path, {}, (err, files) => {
       if (err) return console.log('find error:', err.stack);
       // We only process files
       const filtered = files.filter(f => fs.lstatSync(f).isFile());
       // The heavy-weight is done here
-      filtered.forEach(fp => findRegex(fp, findRegexStr, replRegexStr, insensitive, dryRun));
+      filtered.forEach(fp => findRegex(fp, findRegexStr, replStr, insensitive, dryRun));
     });
   });
 
@@ -179,7 +179,7 @@ program
   .command('url')
   .description('finding all URLs in path')
   .arguments('<path>')
-  .option('-v, --visit', 'attempting to visit each link found and report back', false)
+  .option('-v, --visit', 'attempt to visit each link found and report back', false)
   .option('-e, --error-only', 'use with visit flag, only display URLs returning non-200 status code', false)
   .action((path, options, command) => {
     const { visit, errorOnly } = options;
